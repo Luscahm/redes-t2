@@ -1,4 +1,6 @@
 import asyncio
+from grader.tcputils import fix_checksum
+import time
 from tcputils import *
 
 
@@ -62,6 +64,7 @@ class Conexao:
         self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
         #self.timer.cancel()   # é possível cancelar o timer chamando esse método; esta linha é só um exemplo e pode ser removida
 
+
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
         print('Este é um exemplo de como fazer um timer')
@@ -103,8 +106,16 @@ class Conexao:
         # TODO: implemente aqui o envio de dados.
         # Chame self.servidor.rede.enviar(segmento, dest_addr) para enviar o segmento
         # que você construir para a camada de rede.
-        pass
-
+        if len(dados) <= MSS:
+            (src_addr, src_port, dst_addr, dst_port) = self.id_conexao
+            msg =  make_header(src_port, dst_port, self.seq_no, self.ack_no, FLAGS_ACK) + dados
+            msg = fix_checksum(msg, src_addr,dst_addr)
+            self.servidor.rede.enviar(msg, dst_addr)
+            self.seq_no += len(dados)
+            
+        else:
+            self.enviar(dados[:MSS])
+            self.enviar(dados[MSS:])
     def fechar(self):
         """
         Usado pela camada de aplicação para fechar a conexão
