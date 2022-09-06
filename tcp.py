@@ -3,7 +3,7 @@ from grader.tcputils import fix_checksum
 import time
 from tcputils import *
 
-
+# comentario só pra dar um commit
 class Servidor:
     def __init__(self, rede, porta):
         self.rede = rede
