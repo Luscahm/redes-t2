@@ -1,7 +1,7 @@
 import asyncio
-from grader.tcputils import fix_checksum
+from grader.tcputils import *
 import time
-from tcputils import *
+
 
 # comentario só pra dar um commit
 class Servidor:
@@ -56,31 +56,34 @@ class Servidor:
 
 
 class Conexao:
-    def __init__(self, servidor, id_conexao, seq_no):
-        self.seq_no = seq_no
+    def __init__(self, servidor, id_conexao, seq_start):
+        self.seq_start = seq_start
         self.servidor = servidor
         self.id_conexao = id_conexao
         self.callback = None
-        self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
-        #self.timer.cancel()   # é possível cancelar o timer chamando esse método; esta linha é só um exemplo e pode ser removida
         self.closed = False
+        self.not_ack = []
+        self.timer = None
 
-    def _exemplo_timer(self):
-        # Esta função é só um exemplo e pode ser removida
-        print('Este é um exemplo de como fazer um timer')
+    def _timer_callback(self):
+        (_, _, dst_addr, _) = self.id_conexao
+        self.servidor.rede.enviar(self.not_ack[0], dst_addr)
+        self.timer = asyncio.get_event_loop().call_later(1, self._timer_callback)
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
         if self.closed:
             return 
         print('recebido payload: %r' % payload)
-
-
-        # TODO: trate aqui o recebimento de segmentos provenientes da camada de rede.
-        # Chame self.callback(self, dados) para passar dados para a camada de aplicação após
-        # garantir que eles não sejam duplicados e que tenham sido recebidos em ordem.
-        if seq_no != self.ack_no:
+        if (seq_no > self.ack_no - 1 and ((flags & FLAGS_ACK) == FLAGS_ACK)):
+            if len(self.not_ack) > 0:
+                self.not_ack.pop(0)
+                if self.timer:
+                    self.timer.cancel()
+                if self.not_ack:
+                    self.timer = asyncio.get_event_loop().call_later(1, self._timer_callback)
+        if (seq_no != self.ack_no):
             return
-        if flags & FLAGS_FIN == FLAGS_FIN:
+        if (flags & FLAGS_FIN == FLAGS_FIN):
             self.callback(self, b'')
         elif len(payload) == 0:
             return
@@ -105,24 +108,22 @@ class Conexao:
         """
         Usado pela camada de aplicação para enviar dados
         """
-        # TODO: implemente aqui o envio de dados.
-        # Chame self.servidor.rede.enviar(segmento, dest_addr) para enviar o segmento
-        # que você construir para a camada de rede.
         if len(dados) <= MSS:
             (src_addr, src_port, dst_addr, dst_port) = self.id_conexao
             msg =  make_header(src_port, dst_port, self.seq_no, self.ack_no, FLAGS_ACK) + dados
             msg = fix_checksum(msg, src_addr,dst_addr)
             self.servidor.rede.enviar(msg, dst_addr)
             self.seq_no += len(dados)
-            
+            self.not_ack.append(msg)
+            self.timer = asyncio.get_event_loop().call_later(1, self._timer_callback)
         else:
             self.enviar(dados[:MSS])
             self.enviar(dados[MSS:])
+
     def fechar(self):
         """
         Usado pela camada de aplicação para fechar a conexão
         """
-        # TODO: implemente aqui o fechamento de conexão
         (src_addr, src_port, dst_addr, dst_port) = self.id_conexao
         header = make_header(src_port, dst_port, self.seq_no , self.ack_no, FLAGS_FIN) 
         header = fix_checksum(header, src_addr, dst_addr)  
